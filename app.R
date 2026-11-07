@@ -7,10 +7,23 @@ ui <- navbarPage("Production Planning",
     tabPanel("Moving Average", moving_average_ui("moving_average")),
     tabPanel("Weighted Moving Average", weighted_ma_ui("weighted_ma")),
     tabPanel("Simple Exponential Smoothing", exp_smoothing_ui("exp_smoothing")),
-    tabPanel("Seasonal Factors (quick and dirty)", seasonal_factors_ui("seasonal_factors")),
     "----",
     "Trend series",
-    tabPanel("Holt's Method", holt_ui("holt"))
+    tabPanel("Holt's Method", holt_ui("holt")),
+    "----",
+    "Seasonal series",
+    tabPanel("Seasonal Factors (quick and dirty)", seasonal_factors_ui("seasonal_factors")),
+    tabPanel("Seasonal Decomposition", seasonal_decomposition_ui("seasonal_decomposition")),
+    tabPanel("Winters' Method", winters_ui("winters")),
+    "----",
+    "Box-Jenkins",
+    tabPanel("AR, MA, ARMA and ARIMA", box_jenkins_ui("box_jenkins"))
+  ),
+  navbarMenu("Heuristic Plans",
+    "Aggregate planning",
+    tabPanel("Zero-inventory (Chase) Plan", chase_plan_ui("chase_plan")),
+    tabPanel("Constant-workforce (Level) Plan", level_plan_ui("level_plan")),
+    tabPanel("Mixed Plan", mixed_plan_ui("mixed_plan"))
   )
 )
 
@@ -19,8 +32,14 @@ server <- function(input, output, session) {
   moving_average_server("moving_average")
   weighted_ma_server("weighted_ma")
   exp_smoothing_server("exp_smoothing")
-  seasonal_factors_server("seasonal_factors")
   holt_server("holt")
+  seasonal_factors_server("seasonal_factors")
+  seasonal_decomposition_server("seasonal_decomposition")
+  winters_server("winters")
+  box_jenkins_server("box_jenkins")
+  chase_plan_server("chase_plan")
+  level_plan_server("level_plan")
+  mixed_plan_server("mixed_plan")
 }
 
 shinyApp(ui, server)

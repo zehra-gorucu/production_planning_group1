@@ -41,6 +41,14 @@ fc_examples <- list(
     Year    = rep(1:3, each = 4),
     Quarter = rep(1:4, times = 3),
     Sales   = c(108, 125, 150, 141, 116, 134, 159, 152, 123, 142, 168, 165)
+  ),
+  "Aggregate planning, 6 periods (illustrative)" = data.frame(
+    Period = 1:6,
+    Demand = c(900, 1200, 1500, 1100, 800, 1000)
+  ),
+  "Nile annual flow, 1871-1970 (R dataset)" = data.frame(
+    Year = 1871:1970,
+    Flow = as.numeric(datasets::Nile)
   )
 )
 
@@ -174,6 +182,27 @@ fc_common_ui <- function(ns, horizon_default = 1, horizon_label = "Number of fut
 fc_int <- function(x, default, lower = 1) {
   if (is.null(x) || length(x) == 0 || is.na(x)) return(default)
   max(lower, as.integer(round(x)))
+}
+
+# Autocorrelations and the simple season-length suggestion used by the
+# seasonal modules.  Lags start at 2 because lag 1 usually reflects local
+# persistence rather than a complete seasonal cycle.
+fc_acf <- function(D, max_lag) {
+  as.numeric(stats::acf(D, lag.max = max_lag, plot = FALSE)$acf)[-1]
+}
+
+fc_suggest_season_length <- function(D) {
+  max_lag <- floor(length(D) / 2)
+  if (max_lag < 2) stop("The series is too short to suggest a season length.")
+  r <- fc_acf(D, max_lag)
+  candidates <- 2:max_lag
+  candidate_acf <- r[candidates]
+  candidate_acf[!is.finite(candidate_acf)] <- -Inf
+  if (all(candidate_acf == -Inf)) {
+    stop("A season length cannot be suggested because the autocorrelations are undefined.")
+  }
+  N <- candidates[which.max(candidate_acf)]
+  list(N = N, acf = r)
 }
 
 # ---- Error measures -------------------------------------------------------------

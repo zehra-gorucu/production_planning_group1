@@ -21,11 +21,6 @@ fc_seasonal_factors <- function(D, N) {
 
 fc_season_position <- function(t, N) ((t - 1) %% N) + 1
 
-# Autocorrelation r_k (slide 76) for k = 1..max_lag.
-fc_acf <- function(D, max_lag) {
-  as.numeric(stats::acf(D, lag.max = max_lag, plot = FALSE)$acf)[-1]
-}
-
 # UI ---------------------------------------------------------------------------
 seasonal_factors_ui <- function(id) {
   ns <- NS(id)
@@ -89,11 +84,9 @@ seasonal_factors_server <- function(id) {
       search <- NULL
 
       if (identical(input$mode, "best")) {
-        max_lag <- floor(n / 2)
-        validate(need(max_lag >= 2, "The series is too short to suggest a season length."))
-        r <- fc_acf(D, max_lag)
-        lags <- 2:max_lag
-        N <- lags[which.max(r[lags])]
+        suggestion <- fc_suggest_season_length(D)
+        N <- suggestion$N
+        r <- suggestion$acf
         notes <- c(notes, sprintf("Suggested season length N = %d (largest autocorrelation r_%d = %.3f).",
                                   N, N, r[N]))
         search <- list(

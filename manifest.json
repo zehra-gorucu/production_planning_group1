@@ -1261,16 +1261,31 @@
   },
   "files": {
     "app.R": {
-      "checksum": "ac327262c4822861311dd5b04c7cad0f"
+      "checksum": "871ad4b9efb83c7fda2a97d6397ee53c"
+    },
+    "R/box_jenkins.R": {
+      "checksum": "17069ab4c2ae89ef22f327c45ec6cfa8"
+    },
+    "R/chase_plan.R": {
+      "checksum": "ba5ce3d34fabf53ff04db872a1c7e3e9"
     },
     "R/exponential_smoothing.R": {
       "checksum": "4b5ed22838168e720adfd70d6dc6ef18"
     },
     "R/forecast_utils.R": {
-      "checksum": "65f3675d55129e3a5658248524ba751d"
+      "checksum": "9208b8c0493ffcfc8bb165b92fc2c5d0"
+    },
+    "R/heuristic_utils.R": {
+      "checksum": "483e69349e695090be444661e191b594"
     },
     "R/holt.R": {
       "checksum": "0e5431204af74e7dcc567ccff08fb4b4"
+    },
+    "R/level_plan.R": {
+      "checksum": "88fa649cbbba8d8178dc20d684076ba0"
+    },
+    "R/mixed_plan.R": {
+      "checksum": "5fe64e5dc7658adf8ff8bc4cce47d5c9"
     },
     "R/moving_average.R": {
       "checksum": "be341636ec8981a6c203ec162dde784b"
@@ -1279,13 +1294,22 @@
       "checksum": "706fd21bbcc5d6f0665828865b87b628"
     },
     "R/seasonal_factors.R": {
-      "checksum": "228d145ce8868b947798d66711d30885"
+      "checksum": "2c2924ceb1bbea2d643aea3aa1f6cb88"
+    },
+    "R/seasonal_decomposition.R": {
+      "checksum": "22c5447c7a8228e5b61830ff34d52982"
+    },
+    "R/winters.R": {
+      "checksum": "4735dd0e03ea81dfa674319bd096ad42"
     },
     "R/weighted_moving_average.R": {
       "checksum": "21387faf7a7fa52880ddaf15dc55f351"
     },
     "README.md": {
-      "checksum": "b080e1275a9fc5c9523dcc678507e8ef"
+      "checksum": "b8833d2ef356cb65a1ce1f92b49e0af0"
+    },
+    "INTEGRATION_TR.md": {
+      "checksum": "e68317e824f8c5631c6f37662e9f2301"
     }
   },
   "users": null
