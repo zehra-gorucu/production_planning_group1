@@ -26,9 +26,11 @@ mevcut ortak fonksiyonlardan gelir.
 
 Forecasting menüsüne `Seasonal series` başlığı altında şu sekmeler bağlandı:
 
-1. Seasonal Factors (quick and dirty)
-2. Seasonal Decomposition
-3. Winters' Method
+1. Seasonal Decomposition
+2. Winters' Method
+
+Seasonal Factors (quick and dirty) ödevde "Stationary series" altında istendiği
+için `Stationary series` başlığında kalır (trend içermeyen mevsimsel seriler için).
 
 Server bölümünde aşağıdaki modüller çağrılır:
 

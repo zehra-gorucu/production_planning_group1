@@ -1261,7 +1261,7 @@
   },
   "files": {
     "app.R": {
-      "checksum": "871ad4b9efb83c7fda2a97d6397ee53c"
+      "checksum": "adb29b034275466a2ffe661a6cd0405a"
     },
     "R/box_jenkins.R": {
       "checksum": "17069ab4c2ae89ef22f327c45ec6cfa8"
@@ -1309,7 +1309,7 @@
       "checksum": "b8833d2ef356cb65a1ce1f92b49e0af0"
     },
     "INTEGRATION_TR.md": {
-      "checksum": "e68317e824f8c5631c6f37662e9f2301"
+      "checksum": "33a214019a0604553120edbd8cbcf176"
     }
   },
   "users": null
