@@ -24,6 +24,14 @@ ui <- navbarPage("Production Planning",
     tabPanel("Zero-inventory (Chase) Plan", chase_plan_ui("chase_plan")),
     tabPanel("Constant-workforce (Level) Plan", level_plan_ui("level_plan")),
     tabPanel("Mixed Plan", mixed_plan_ui("mixed_plan"))
+  ),
+  navbarMenu("Optimization",
+    "Aggregate planning",
+    tabPanel("Linear Programming", linear_programming_ui("linear_programming")),
+    tabPanel("Transportation Method", transportation_method_ui("transportation_method")),
+    "----",
+    "Detailed planning",
+    tabPanel("Disaggregation", disaggregation_ui("disaggregation"))
   )
 )
 
@@ -40,6 +48,9 @@ server <- function(input, output, session) {
   chase_plan_server("chase_plan")
   level_plan_server("level_plan")
   mixed_plan_server("mixed_plan")
+  linear_programming_server("linear_programming")
+  transportation_method_server("transportation_method")
+  disaggregation_server("disaggregation")
 }
 
 shinyApp(ui, server)

@@ -647,6 +647,27 @@
         "Built": "R 4.6.1; ; 2026-10-28 03:02:09 UTC; windows"
       }
     },
+    "lpSolve": {
+      "Source": "CRAN",
+      "Repository": "https://cloud.r-project.org",
+      "description": {
+        "Package": "lpSolve",
+        "Version": "5.6.23",
+        "Title": "Interface to 'Lp_solve' v. 5.5 to Solve Linear/Integer Programs",
+        "Authors@R": "c(\n    person(\"Gábor\", \"Csárdi\", , \"csardi.gabor@gmail.com\", role = \"cre\"),\n    person(\"Michel\", \"Berkelaar\", role = \"aut\")\n  )",
+        "Description": "Lp_solve is freely available (under LGPL 2) software for\n        solving linear, integer and mixed integer programs. In this\n        implementation we supply a \"wrapper\" function in C and some R\n        functions that solve general linear/integer problems,\n        assignment problems, and transportation problems. This version\n        calls lp_solve version 5.5.",
+        "License": "LGPL-2",
+        "URL": "https://github.com/gaborcsardi/lpSolve",
+        "BugReports": "https://github.com/gaborcsardi/lpSolve/issues",
+        "Encoding": "UTF-8",
+        "NeedsCompilation": "yes",
+        "Packaged": "2024-12-13 22:30:07 UTC; gaborcsardi",
+        "Author": "Gábor Csárdi [cre],\n  Michel Berkelaar [aut]",
+        "Maintainer": "Gábor Csárdi <csardi.gabor@gmail.com>",
+        "Repository": "CRAN",
+        "Date/Publication": "2024-12-14 00:30:02 UTC"
+      }
+    },
     "magrittr": {
       "Source": "CRAN",
       "Repository": "https://cloud.r-project.org",
@@ -1261,13 +1282,16 @@
   },
   "files": {
     "app.R": {
-      "checksum": "adb29b034275466a2ffe661a6cd0405a"
+      "checksum": "5239415d0a3c23ef760cc415d6ac3c7e"
     },
     "R/box_jenkins.R": {
       "checksum": "17069ab4c2ae89ef22f327c45ec6cfa8"
     },
     "R/chase_plan.R": {
       "checksum": "ba5ce3d34fabf53ff04db872a1c7e3e9"
+    },
+    "R/disaggregation.R": {
+      "checksum": "149c7d902067c475694a802c32cdd01e"
     },
     "R/exponential_smoothing.R": {
       "checksum": "4b5ed22838168e720adfd70d6dc6ef18"
@@ -1284,6 +1308,9 @@
     "R/level_plan.R": {
       "checksum": "88fa649cbbba8d8178dc20d684076ba0"
     },
+    "R/linear_programming.R": {
+      "checksum": "65add3faa7ca579a68e5c495705c2ea2"
+    },
     "R/mixed_plan.R": {
       "checksum": "5fe64e5dc7658adf8ff8bc4cce47d5c9"
     },
@@ -1298,6 +1325,9 @@
     },
     "R/seasonal_decomposition.R": {
       "checksum": "22c5447c7a8228e5b61830ff34d52982"
+    },
+    "R/transportation_method.R": {
+      "checksum": "39cde7cf5c36390436fa51ffee38b7a3"
     },
     "R/winters.R": {
       "checksum": "4735dd0e03ea81dfa674319bd096ad42"
