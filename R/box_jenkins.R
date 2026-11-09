@@ -79,9 +79,29 @@ fc_bj_candidates <- function(family, max_p = 4, max_d = 2, max_q = 4) {
   grid[!(grid$p == 0 & grid$d == 0 & grid$q == 0), , drop = FALSE]
 }
 
+# Differencing order for the ARIMA search. AIC/BIC values of models with
+# different d are not comparable (they are likelihoods of different series),
+# so d is chosen first with the classical minimum-variance rule: difference
+# until the variance of the series stops decreasing.
+fc_bj_choose_d <- function(D, max_d) {
+  d_values <- 0:max_d
+  variances <- vapply(d_values, function(d) {
+    y <- if (d == 0) D else diff(D, differences = d)
+    if (length(y) < 3) Inf else stats::var(y)
+  }, numeric(1))
+  list(d = d_values[which.min(variances)],
+       table = data.frame(d = d_values, "Variance of differenced series" = variances,
+                          check.names = FALSE))
+}
+
 fc_bj_search <- function(D, family, max_p, max_d, max_q, criterion,
                          include_mean = TRUE) {
   candidates <- fc_bj_candidates(family, max_p, max_d, max_q)
+  d_choice <- NULL
+  if (family == "ARIMA") {
+    d_choice <- fc_bj_choose_d(D, max_d)
+    candidates <- candidates[candidates$d == d_choice$d, , drop = FALSE]
+  }
   rows <- lapply(seq_len(nrow(candidates)), function(i) {
     order <- as.integer(candidates[i, c("p", "d", "q")])
     result <- tryCatch(
@@ -101,7 +121,7 @@ fc_bj_search <- function(D, family, max_p, max_d, max_q, criterion,
   if (nrow(table) == 0) stop("No candidate model produced a finite selection criterion.")
   table <- table[order(table[[criterion]], table$p + table$q + table$d), , drop = FALSE]
   best <- as.integer(table[1, c("p", "d", "q")])
-  list(order = best, table = table)
+  list(order = best, table = table, d_choice = d_choice)
 }
 
 fc_bj_ljung_box <- function(residuals, p, q) {
@@ -122,7 +142,12 @@ fc_bj_ljung_box <- function(residuals, p, q) {
 }
 
 fc_bj_order_label <- function(order, family = "ARIMA") {
-  sprintf("%s(%d,%d,%d)", family, order[1], order[2], order[3])
+  switch(family,
+    AR   = sprintf("AR(%d)", order[1]),
+    MA   = sprintf("MA(%d)", order[3]),
+    ARMA = sprintf("ARMA(%d,%d)", order[1], order[3]),
+    sprintf("ARIMA(%d,%d,%d)", order[1], order[2], order[3])
+  )
 }
 
 # UI ---------------------------------------------------------------------------
@@ -169,7 +194,9 @@ box_jenkins_ui <- function(id) {
           numericInput(ns("max_d"), "Maximum d", value = 2, min = 0, max = 3, step = 1)
         ),
         numericInput(ns("max_q"), "Maximum q", value = 4, min = 1, max = 10, step = 1),
-        helpText("Every permitted order up to these limits is fitted by maximum likelihood.")
+        helpText("Every permitted order up to these limits is fitted by maximum likelihood.",
+                 "For ARIMA, d is chosen first as the differencing order with the smallest",
+                 "variance; p and q are then compared by AIC/BIC for that d.")
       ),
       checkboxInput(ns("include_mean"), "Include a mean/intercept when d = 0", value = TRUE),
       hr(),
@@ -234,6 +261,14 @@ box_jenkins_server <- function(id) {
         top <- head(sr$table, 10)
         top$Model <- sprintf("(%d,%d,%d)", top$p, top$d, top$q)
         top <- top[c("Model", "p", "d", "q", "AIC", "BIC", "logLik")]
+        if (!is.null(sr$d_choice)) {
+          dv <- sr$d_choice$table
+          notes <- c(notes, sprintf(
+            "Differencing order d = %d was chosen first because it gives the smallest variance (%s).",
+            sr$d_choice$d,
+            paste(sprintf("d = %d: %s", dv$d, fc_fmt(dv[[2]], 1)), collapse = "; ")
+          ))
+        }
         notes <- c(notes, sprintf(
           "Best order (%d,%d,%d) has the minimum %s among %d fitted candidates.",
           order[1], order[2], order[3], input$criterion, nrow(sr$table)
@@ -335,8 +370,14 @@ box_jenkins_server <- function(id) {
       residual_lag <- min(20, length(residuals) - 1)
       old_par <- par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
       on.exit(par(old_par), add = TRUE)
-      stats::acf(r$D, lag.max = lag_max, main = "Series ACF", na.action = na.pass)
-      stats::pacf(r$D, lag.max = lag_max, main = "Series PACF", na.action = na.pass)
+      # Identification uses the series the ARMA part is fitted to: the
+      # differenced series when d > 0.
+      d <- r$bj$order[2]
+      y <- if (d > 0) diff(r$D, differences = d) else r$D
+      series_label <- if (d > 0) sprintf("differenced series (d = %d)", d) else "series"
+      lag_max <- min(20, length(y) - 1)
+      stats::acf(y, lag.max = lag_max, main = paste("ACF of", series_label), na.action = na.pass)
+      stats::pacf(y, lag.max = lag_max, main = paste("PACF of", series_label), na.action = na.pass)
       plot(residuals, type = "o", pch = 19, col = "#3B3B3B",
            xlab = "Fitted period", ylab = "Residual", main = "Model residuals")
       abline(h = 0, lty = 2, col = "#D95F02")

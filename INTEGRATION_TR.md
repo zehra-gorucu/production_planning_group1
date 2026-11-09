@@ -69,7 +69,7 @@ Box-Jenkins için:
 
 Heuristic planlar için:
 
-1. `Heuristic Plans` menüsünden Chase, Level veya Mixed Plan'ı seçin.
+1. `Aggregate Planning` menüsünün `Heuristic plans` bölümünden Chase, Level veya Mixed Plan'ı seçin.
 2. Talep sütununu, başlangıç işgücünü, işçi başına üretimi ve stok hedeflerini girin.
 3. Düzenli üretim, işe alma/çıkarma, stok ve backlog maliyetlerini girin.
 4. Mixed Plan'da düzenli işgücü payını veya sabit işgücünü; fazla mesai ve taşeron

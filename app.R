@@ -19,19 +19,18 @@ ui <- navbarPage("Production Planning",
     "Box-Jenkins",
     tabPanel("AR, MA, ARMA and ARIMA", box_jenkins_ui("box_jenkins"))
   ),
-  navbarMenu("Heuristic Plans",
-    "Aggregate planning",
+  navbarMenu("Aggregate Planning",
+    "Heuristic plans",
     tabPanel("Zero-inventory (Chase) Plan", chase_plan_ui("chase_plan")),
     tabPanel("Constant-workforce (Level) Plan", level_plan_ui("level_plan")),
-    tabPanel("Mixed Plan", mixed_plan_ui("mixed_plan"))
-  ),
-  navbarMenu("Optimization",
-    "Aggregate planning",
+    tabPanel("Mixed Plan", mixed_plan_ui("mixed_plan")),
+    "----",
+    "Optimization",
     tabPanel("Linear Programming", linear_programming_ui("linear_programming")),
     tabPanel("Transportation Method", transportation_method_ui("transportation_method")),
     "----",
-    "Detailed planning",
-    tabPanel("Disaggregation", disaggregation_ui("disaggregation"))
+    "Disaggregation",
+    tabPanel("Square-root Disaggregation", disaggregation_ui("disaggregation"))
   )
 )
 

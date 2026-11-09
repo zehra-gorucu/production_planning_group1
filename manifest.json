@@ -1282,10 +1282,10 @@
   },
   "files": {
     "app.R": {
-      "checksum": "5239415d0a3c23ef760cc415d6ac3c7e"
+      "checksum": "54fe32eb3e2d8c9e12afbf0511019c6c"
     },
     "R/box_jenkins.R": {
-      "checksum": "17069ab4c2ae89ef22f327c45ec6cfa8"
+      "checksum": "377d8cf7751b5f4107e43468bc190e88"
     },
     "R/chase_plan.R": {
       "checksum": "ba5ce3d34fabf53ff04db872a1c7e3e9"
@@ -1336,10 +1336,10 @@
       "checksum": "21387faf7a7fa52880ddaf15dc55f351"
     },
     "README.md": {
-      "checksum": "b8833d2ef356cb65a1ce1f92b49e0af0"
+      "checksum": "17a452c380c965f67bc49a18cd9d592b"
     },
     "INTEGRATION_TR.md": {
-      "checksum": "33a214019a0604553120edbd8cbcf176"
+      "checksum": "0a6d4f98ad5aa71ddb499b239e496e26"
     }
   },
   "users": null

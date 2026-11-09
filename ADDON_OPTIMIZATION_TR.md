@@ -49,6 +49,6 @@ ZIP'i önce Mac'te açın. Sonra arkadaşınızın aynı GitHub deposunda:
 install.packages("lpSolve")
 ```
 
-Ardından proje klasöründeki `app.R` dosyasını açın ve sağ üstteki **Run App** düğmesine basın. Uygulamada yeni **Optimization** menüsü görünür.
+Ardından proje klasöründeki `app.R` dosyasını açın ve sağ üstteki **Run App** düğmesine basın. Üç modül **Aggregate Planning** menüsünde görünür: Linear Programming ve Transportation Method "Optimization" başlığı altında, Disaggregation kendi başlığı altında.
 
 Posit/ShinyApps'e yeniden Publish edildiğinde güncel `manifest.json`, `lpSolve` paketinin sunucuda kurulmasını sağlar.
