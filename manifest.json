@@ -1302,7 +1302,7 @@
       "checksum": "2aea5268fe831e29d5f891708bca82fb"
     },
     "R/disaggregation.R": {
-      "checksum": "636f4c3ca5cbb7eb7ce1a2404ef99223"
+      "checksum": "4f2dec7d2d0a00484201825883501e63"
     },
     "R/exponential_smoothing.R": {
       "checksum": "4b5ed22838168e720adfd70d6dc6ef18"
@@ -1312,6 +1312,9 @@
     },
     "R/holt.R": {
       "checksum": "0e5431204af74e7dcc567ccff08fb4b4"
+    },
+    "R/learning_curve.R": {
+      "checksum": "94060c86f773746a608454c7e7a35e8b"
     },
     "R/level_plan.R": {
       "checksum": "dbda5c27268e34f2e26078ef625cb777"
@@ -1324,9 +1327,6 @@
     },
     "R/moving_average.R": {
       "checksum": "be341636ec8981a6c203ec162dde784b"
-    },
-    "R/ogrenme.R": {
-      "checksum": "706fd21bbcc5d6f0665828865b87b628"
     },
     "R/seasonal_decomposition.R": {
       "checksum": "22c5447c7a8228e5b61830ff34d52982"

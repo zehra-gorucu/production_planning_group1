@@ -76,6 +76,9 @@ disaggregation_ui <- function(id) {
       uiOutput(ns("notes")),
       h4("Product families"),
       tableOutput(ns("family_table")),
+      h4("Cost of each item"),
+      tableOutput(ns("cost_table")),
+      plotOutput(ns("cum_plot"), height = "380px"),
       plotOutput(ns("plot"), height = "380px"),
       h4("Disaggregated plan by period"),
       div(style = "overflow-x: auto;", tableOutput(ns("period_table"))),
@@ -104,17 +107,22 @@ disaggregation_server <- function(id, setup, plans) {
         X <- tryCatch(ap_parse_list(input$manual, s$n, "Aggregate production"),
                       error = function(e) validate(need(FALSE, conditionMessage(e))))
         label <- "Manual quantities"
+        plan_costs <- NULL
       } else {
         p <- plans[[input$source]]()
         k <- min(as.integer(input$version %||% "2"), length(p$plans))
         X <- p$plans[[k]]$production
         label <- sprintf("%s – %s", input$source, names(p$plans)[k])
+        plan_costs <- p$plans[[k]]$costs
       }
       Y <- t(vapply(X, ap_sqrt_rule, numeric(nrow(fam)), fam = fam))
-      if (nrow(fam) == 1) Y <- t(Y)
       colnames(Y) <- fam$Family
-      setup_cost <- apply(Y, 1, function(y) if (any(is.na(y))) NA else sum(ifelse(y > 0, fam$K * fam$lambda / y, Inf)))
-      list(s = s, fam = fam, X = X, Y = Y, label = label, setup_cost = setup_cost)
+      # Setup cost K_j lambda_j / Y_j of every family in every period
+      family_cost <- sweep(1 / Y, 2, fam$K * fam$lambda, "*")
+      family_cost[!is.finite(family_cost)] <- NA
+      setup_cost <- rowSums(family_cost)
+      list(s = s, fam = fam, X = X, Y = Y, label = label, setup_cost = setup_cost,
+           family_cost = family_cost, plan_costs = plan_costs)
     })
 
     output$headline <- renderText({
@@ -138,6 +146,44 @@ disaggregation_server <- function(id, setup, plans) {
                  "sqrt(K_j λ_j)" = root, "Share (%)" = 100 * root / sum(root),
                  Minimum = f$a, Maximum = ifelse(is.finite(f$b), f$b, NA), check.names = FALSE)
     }, digits = 2, na = "")
+
+    output$cost_table <- renderTable({
+      r <- res()
+      setup <- colSums(r$family_cost, na.rm = TRUE)
+      tab <- data.frame(Item = c(paste("Setup cost –", names(setup)), "Total setup cost"),
+                        Cost = c(setup, sum(setup)), check.names = FALSE)
+      if (!is.null(r$plan_costs)) {
+        tab <- rbind(tab, data.frame(
+          Item = c(paste("Aggregate plan –", names(r$plan_costs)), "Aggregate plan total cost",
+                   "Total cost (aggregate plan + setup)"),
+          Cost = c(r$plan_costs, sum(r$plan_costs), sum(r$plan_costs) + sum(setup)),
+          check.names = FALSE))
+      }
+      tab
+    }, digits = 2)
+
+    output$cum_plot <- renderPlot({
+      r <- res()
+      n <- r$s$n
+      Y <- r$Y
+      Y[is.na(Y)] <- 0
+      cum_net <- cumsum(r$s$net)
+      cum_total <- cumsum(rowSums(Y))
+      cum_fam <- apply(Y, 2, cumsum)
+      if (is.null(dim(cum_fam))) cum_fam <- matrix(cum_fam, nrow = 1)
+      cols <- grDevices::hcl.colors(ncol(Y), "Set 2")
+      par(mar = c(6, 5, 3, 1))
+      plot(seq_len(n), cum_net, type = "o", pch = 19, lwd = 2, col = "#3B3B3B",
+           ylim = range(0, cum_net, cum_total), xaxt = "n", las = 1, xlab = "", ylab = "Cumulative units",
+           main = "Cumulative production vs. cumulative net demand")
+      axis(1, at = seq_len(n), labels = r$s$periods, las = 2, cex.axis = 0.85)
+      grid(col = "#E5E5E5", lty = 1)
+      lines(seq_len(n), cum_total, type = "o", pch = 17, lty = 2, lwd = 2, col = "#2C7BB6")
+      for (j in seq_len(ncol(Y))) lines(seq_len(n), cum_fam[, j], type = "l", lwd = 2, col = cols[j])
+      legend("topleft", bty = "n", lwd = 2,
+             legend = c("Cumulative net demand", "Cumulative production (all families)", colnames(Y)),
+             col = c("#3B3B3B", "#2C7BB6", cols), lty = c(1, 2, rep(1, ncol(Y))))
+    })
 
     period_table <- reactive({
       r <- res()
