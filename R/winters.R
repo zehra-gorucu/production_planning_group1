@@ -31,6 +31,31 @@ fc_winters_initial <- function(D, N, type = c("multiplicative", "additive"),
   )
 }
 
+# Winters's own initialization (Nahmias Section 2.9, Example 2.8).
+#   V_i = mean of season i,  G0 = (V_m - V_1) / ((m - 1) N),
+#   S0  = V_m + G0 (N - 1) / 2   (value of the line through the V's at the end
+#                                 of the initialization data),
+#   c_t = D_t / (V_i - ((N + 1) / 2 - j) G0) for period j of season i,
+#   averaged over like periods and normed to add up to N.
+fc_winters_initial_book <- function(D, N, type = c("multiplicative", "additive"),
+                                    seasons = 2) {
+  type <- match.arg(type)
+  N <- as.integer(N)
+  m <- min(floor(length(D) / N), max(2L, as.integer(seasons)))
+  if (m < 2) stop("At least two complete seasons are needed for initialization.")
+  k <- m * N
+  M <- matrix(D[seq_len(k)], nrow = N)          # rows: period j, columns: season i
+  V <- colMeans(M)
+  G0 <- (V[m] - V[1]) / ((m - 1) * N)
+  S0 <- V[m] + G0 * (N - 1) / 2
+  line <- outer(seq_len(N), seq_len(m), function(j, i) V[i] - ((N + 1) / 2 - j) * G0)
+  raw <- if (type == "multiplicative") M / line else M - line
+  c0 <- rowMeans(raw)
+  c0 <- if (type == "multiplicative") c0 * N / sum(c0) else c0 - mean(c0)
+  list(period = k, level = S0, trend = G0, seasonal = c0, season_means = V,
+       regression = list(a = S0 - G0 * k, b = G0))
+}
+
 fc_winters <- function(D, N, alpha, beta, gamma, initial, h = 1,
                        type = c("multiplicative", "additive")) {
   type <- match.arg(type)
@@ -199,6 +224,7 @@ winters_ui <- function(id) {
       radioButtons(
         ns("init"), "Initial level and trend",
         choices = c("Regression on the deseasonalized initialization data" = "regression",
+                    "Winters's method: season averages V1, V2 (book, Example 2.8)" = "book",
                     "Enter level and trend at the end of initialization" = "manual")
       ),
       conditionalPanel(
@@ -206,8 +232,10 @@ winters_ui <- function(id) {
         numericInput(ns("level0"), "Initial level at the end of initialization", value = 140),
         numericInput(ns("trend0"), "Initial trend per period", value = 3)
       ),
-      helpText("Initial seasonal figures are estimated by moving-average decomposition.",
-               "At least one observation must remain after initialization."),
+      helpText("Regression and manual options estimate the initial seasonal figures by",
+               "moving-average decomposition. Winters's method divides each observation by",
+               "the line through the season averages. At least one observation must remain",
+               "after initialization."),
       hr(),
       fc_common_ui(ns, horizon_default = NA,
                    horizon_label = "Number of future periods (empty = one season)")
@@ -274,10 +302,17 @@ winters_server <- function(id) {
       validate(need(init_seasons < complete_seasons || init_seasons * N < n,
                     "Initialization uses all observations. Reduce the number of initialization seasons."))
       initial <- tryCatch(
-        fc_winters_initial(D, N, input$type, init_seasons),
+        if (identical(input$init, "book")) {
+          fc_winters_initial_book(D, N, input$type, init_seasons)
+        } else {
+          fc_winters_initial(D, N, input$type, init_seasons)
+        },
         error = function(e) validate(need(FALSE, conditionMessage(e)))
       )
-      if (identical(input$init, "manual")) {
+      if (identical(input$init, "book")) {
+        init_source <- sprintf("Winters's method: season means %s, G0 = (V_m - V_1) / ((m - 1) N), S0 = V_m + G0 (N - 1) / 2",
+                               paste(fc_fmt(initial$season_means, 2), collapse = ", "))
+      } else if (identical(input$init, "manual")) {
         validate(need(is.finite(input$level0) && is.finite(input$trend0),
                       "Please enter finite initial level and trend values."))
         initial$level <- input$level0
