@@ -1,221 +1,178 @@
 # =============================================================================
-# Aggregate planning with linear programming
-# Regular production, overtime, idle capacity and subcontracting are optional.
-# The model also balances workforce, inventory and backlog in every period.
+# Linear Programming aggregate plan        (Aggregate Planning > Optimization)
+# Nahmias & Olsen Section 3.5
+#   min  sum( cH H_t + cF F_t + cI I_t + regular time + cO O_t + cU U_t + cS S_t )
+#   s.t. W_t = W_{t-1} + H_t - F_t                      (conservation of workforce)
+#        P_t = K n_t W_t + O_t - U_t                    (production and workforce)
+#        I_t = I_{t-1} + P_t + S_t - D_t                (inventory balance)
+#        I_T >= required ending inventory, all variables >= 0
+# Options: overtime (limited to a % of regular capacity), idle time and
+# subcontracting (optional capacity per period) can be switched on or off.
+# Whole workers: the book's conservative rounding rounds every W_t up and then
+# re-solves for the other variables; an integer program can also be solved.
 # =============================================================================
 
-lp_add_constraint <- function(model, coefficients, direction, rhs) {
-  model$mat <- rbind(model$mat, coefficients)
-  model$dir <- c(model$dir, direction)
-  model$rhs <- c(model$rhs, rhs)
-  model
-}
-
-lp_aggregate_plan <- function(demand, params, overtime_per_worker,
-                              overtime_cost, idle_cost,
-                              subcontract_capacity, subcontract_cost,
-                              use_overtime = TRUE, use_idle = TRUE,
-                              use_subcontract = TRUE,
-                              integer_workforce = FALSE) {
+ap_lp_solve <- function(s, opts, fixed_W = NULL, integer = FALSE) {
   if (!requireNamespace("lpSolve", quietly = TRUE)) {
     stop("The 'lpSolve' package is required. Run install.packages('lpSolve') once.")
   }
-  demand <- as.numeric(demand)
-  n <- length(demand)
-  blocks <- c("W", "H", "L", "R", "O", "S", "U", "I", "B")
+  n <- s$n
+  c <- s$costs
+  blocks <- c("W", "H", "F", "P", "I", "O", "U", "S")
   nv <- length(blocks) * n
-  at <- function(block, period) (match(block, blocks) - 1L) * n + period
+  at <- function(b, t) (match(b, blocks) - 1L) * n + t
 
-  objective <- numeric(nv)
-  objective[sapply(seq_len(n), function(t) at("H", t))] <- params$hire_cost
-  objective[sapply(seq_len(n), function(t) at("L", t))] <- params$layoff_cost
-  objective[sapply(seq_len(n), function(t) at("R", t))] <- params$regular_cost
-  objective[sapply(seq_len(n), function(t) at("O", t))] <- overtime_cost
-  objective[sapply(seq_len(n), function(t) at("S", t))] <- subcontract_cost
-  objective[sapply(seq_len(n), function(t) at("U", t))] <- idle_cost
-  objective[sapply(seq_len(n), function(t) at("I", t))] <- params$holding_cost
-  objective[sapply(seq_len(n), function(t) at("B", t))] <- params$backlog_cost
-
-  model <- list(mat = matrix(numeric(0), nrow = 0, ncol = nv),
-                dir = character(0), rhs = numeric(0))
+  # Objective
+  obj <- numeric(nv)
   for (t in seq_len(n)) {
-    # Workforce: W_t = W_(t-1) + H_t - L_t.
-    row <- numeric(nv)
-    row[at("W", t)] <- 1
-    row[at("H", t)] <- -1
-    row[at("L", t)] <- 1
-    if (t > 1) row[at("W", t - 1)] <- -1
-    model <- lp_add_constraint(model, row, "=",
-                               if (t == 1) params$initial_workforce else 0)
-
-    # Regular capacity is either produced or idle.
-    row <- numeric(nv)
-    row[at("R", t)] <- 1
-    row[at("U", t)] <- 1
-    row[at("W", t)] <- -params$productivity
-    model <- lp_add_constraint(model, row, "=", 0)
-
-    # Overtime capacity grows with the workforce.
-    row <- numeric(nv)
-    row[at("O", t)] <- 1
-    row[at("W", t)] <- -overtime_per_worker
-    model <- lp_add_constraint(model, row, "<=", 0)
-
-    # Subcontract capacity is entered per period.
-    row <- numeric(nv)
-    row[at("S", t)] <- 1
-    model <- lp_add_constraint(model, row, "<=", subcontract_capacity)
-
-    # Material balance: production + opening net stock - ending net stock = demand.
-    row <- numeric(nv)
-    row[c(at("R", t), at("O", t), at("S", t))] <- 1
-    row[at("I", t)] <- -1
-    row[at("B", t)] <- 1
-    rhs <- demand[t]
-    if (t == 1) {
-      rhs <- rhs - params$initial_inventory
+    obj[at("H", t)] <- c$hire
+    obj[at("F", t)] <- c$fire
+    obj[at("I", t)] <- c$hold
+    obj[at("O", t)] <- c$ot
+    obj[at("S", t)] <- c$sc
+    obj[at("U", t)] <- c$idle
+    if (identical(c$reg_basis, "worker_day")) {
+      obj[at("W", t)] <- c$reg * s$days[t]                 # payroll for every worker-day
     } else {
-      row[at("I", t - 1)] <- 1
-      row[at("B", t - 1)] <- -1
-    }
-    model <- lp_add_constraint(model, row, "=", rhs)
-
-    if (!use_overtime) {
-      row <- numeric(nv); row[at("O", t)] <- 1
-      model <- lp_add_constraint(model, row, "=", 0)
-    }
-    if (!use_idle) {
-      row <- numeric(nv); row[at("U", t)] <- 1
-      model <- lp_add_constraint(model, row, "=", 0)
-    }
-    if (!use_subcontract) {
-      row <- numeric(nv); row[at("S", t)] <- 1
-      model <- lp_add_constraint(model, row, "=", 0)
+      obj[at("W", t)] <- c$reg * s$kn[t]                   # regular units = K n W - U
+      obj[at("U", t)] <- obj[at("U", t)] - c$reg
     }
   }
 
-  row <- numeric(nv); row[at("I", n)] <- 1
-  model <- lp_add_constraint(model, row, "=", params$target_inventory)
-  row <- numeric(nv); row[at("B", n)] <- 1
-  model <- lp_add_constraint(model, row, "=", 0)
+  rows <- list(); dirs <- character(0); rhs <- numeric(0)
+  add <- function(coef, dir, value) {
+    row <- numeric(nv)
+    row[as.integer(names(coef))] <- coef
+    rows[[length(rows) + 1]] <<- row
+    dirs <<- c(dirs, dir)
+    rhs <<- c(rhs, value)
+  }
+  for (t in seq_len(n)) {
+    # (A) W_t - W_{t-1} - H_t + F_t = 0
+    coef <- setNames(c(1, -1, 1), c(at("W", t), at("H", t), at("F", t)))
+    if (t > 1) coef <- c(coef, setNames(-1, at("W", t - 1)))
+    add(coef, "=", if (t == 1) s$W0 else 0)
+    # (B) P_t - K n_t W_t - O_t + U_t = 0
+    add(setNames(c(1, -s$kn[t], -1, 1), c(at("P", t), at("W", t), at("O", t), at("U", t))), "=", 0)
+    # (C) P_t + S_t + I_{t-1} - I_t = D_t
+    coef <- setNames(c(1, 1, -1), c(at("P", t), at("S", t), at("I", t)))
+    if (t > 1) coef <- c(coef, setNames(1, at("I", t - 1)))
+    add(coef, "=", s$demand[t] - (if (t == 1) s$I0 else 0))
+    # Options
+    if (isTRUE(opts$allow_ot)) {
+      add(setNames(c(1, -opts$ot_pct / 100 * s$kn[t]), c(at("O", t), at("W", t))), "<=", 0)
+    } else {
+      add(setNames(1, at("O", t)), "=", 0)
+    }
+    if (!isTRUE(opts$allow_idle)) add(setNames(1, at("U", t)), "=", 0)
+    if (isTRUE(opts$allow_sc)) {
+      if (is.finite(opts$sc_cap[t])) add(setNames(1, at("S", t)), "<=", opts$sc_cap[t])
+    } else {
+      add(setNames(1, at("S", t)), "=", 0)
+    }
+    if (!is.null(fixed_W)) add(setNames(1, at("W", t)), "=", fixed_W[t])
+  }
+  add(setNames(1, at("I", n)), ">=", s$IT)
 
-  integer_vars <- if (integer_workforce) {
-    unlist(lapply(c("W", "H", "L"), function(b) sapply(seq_len(n), function(t) at(b, t))))
-  } else NULL
-  fit <- lpSolve::lp(
-    direction = "min", objective.in = objective,
-    const.mat = model$mat, const.dir = model$dir, const.rhs = model$rhs,
-    int.vec = integer_vars
-  )
+  mat <- do.call(rbind, rows)
+  int_vec <- if (integer) unlist(lapply(c("W", "H", "F"), function(b) at(b, seq_len(n)))) else NULL
+  fit <- lpSolve::lp("min", obj, mat, dirs, rhs, int.vec = int_vec)
   if (fit$status != 0) {
-    stop("No feasible plan was found. Increase capacity, allow idle time, or revise the ending-inventory requirement.")
+    stop("No feasible plan exists with these options. Allow overtime, idle time or subcontracting, ",
+         "or raise their limits.")
   }
-  value <- function(block) fit$solution[sapply(seq_len(n), function(t) at(block, t))]
-  previous_w <- c(params$initial_workforce, value("W")[-n])
+  v <- function(b) fit$solution[at(b, seq_len(n))]
+  W <- v("W"); H <- v("H"); F <- v("F"); P <- v("P"); I <- v("I")
+  O <- v("O"); U <- v("U"); S <- v("S")
+  regular <- s$kn * W - U
   tab <- data.frame(
-    Period = seq_len(n), Demand = demand,
-    Workforce = value("W"), Hires = value("H"), Layoffs = value("L"),
-    "Regular production" = value("R"),
-    "Overtime production" = value("O"),
-    "Subcontract production" = value("S"),
-    "Idle regular capacity" = value("U"),
-    "Ending inventory" = value("I"),
-    "Ending backlog" = value("B"), check.names = FALSE
+    Period = s$periods, "Working days" = s$days, Demand = s$demand,
+    Workers = W, Hired = H, Fired = F,
+    "Regular production" = regular, Overtime = O, "Idle (units)" = U,
+    Subcontracted = S, "Total production" = P + S,
+    "Cumulative production" = cumsum(P + S), "Cumulative net demand" = cumsum(s$net),
+    "Ending inventory" = I, check.names = FALSE
   )
-  tab[["Total production"]] <- tab[["Regular production"]] +
-    tab[["Overtime production"]] + tab[["Subcontract production"]]
-  tab[["Regular cost"]] <- tab[["Regular production"]] * params$regular_cost
-  tab[["Overtime cost"]] <- tab[["Overtime production"]] * overtime_cost
-  tab[["Subcontract cost"]] <- tab[["Subcontract production"]] * subcontract_cost
-  tab[["Idle cost"]] <- tab[["Idle regular capacity"]] * idle_cost
-  tab[["Hiring cost"]] <- tab$Hires * params$hire_cost
-  tab[["Layoff cost"]] <- tab$Layoffs * params$layoff_cost
-  tab[["Holding cost"]] <- tab[["Ending inventory"]] * params$holding_cost
-  tab[["Backlog cost"]] <- tab[["Ending backlog"]] * params$backlog_cost
-  cost_cols <- c("Regular cost", "Overtime cost", "Subcontract cost", "Idle cost",
-                 "Hiring cost", "Layoff cost", "Holding cost", "Backlog cost")
-  tab[["Period cost"]] <- rowSums(tab[cost_cols])
-  list(table = tab, objective = fit$objval, cost_cols = cost_cols,
-       workforce_balance = max(abs(tab$Workforce - (previous_w + tab$Hires - tab$Layoffs))))
+  costs <- ap_cost_items(s, W, H, F, I, regular_units = regular,
+                         overtime = if (isTRUE(opts$allow_ot)) O else NULL,
+                         subcontract = if (isTRUE(opts$allow_sc)) S else NULL,
+                         idle = if (isTRUE(opts$allow_idle)) U else NULL)
+  list(table = tab, production = P + S, costs = costs, objective = fit$objval, W = W)
 }
 
 linear_programming_ui <- function(id) {
   ns <- NS(id)
   sidebarLayout(
     sidebarPanel(
-      h4("Linear Programming Aggregate Plan"),
-      hp_common_ui(ns), hr(),
-      h4("Planning options"),
-      checkboxInput(ns("use_overtime"), "Allow overtime", TRUE),
-      conditionalPanel("input.use_overtime", ns = ns,
-        numericInput(ns("overtime_per_worker"), "Maximum overtime units per worker", 30, min = 0),
-        numericInput(ns("overtime_cost"), "Overtime cost per unit", 30, min = 0)
+      h4("Linear Programming"),
+      ap_setup_info_ui(ns),
+      checkboxInput(ns("allow_ot"), "Allow overtime", FALSE),
+      conditionalPanel(
+        "input.allow_ot", ns = ns,
+        numericInput(ns("ot_pct"), "Maximum overtime (% of regular capacity K n W)", value = 20, min = 0)
       ),
-      checkboxInput(ns("use_idle"), "Allow idle time", TRUE),
-      conditionalPanel("input.use_idle", ns = ns,
-        numericInput(ns("idle_cost"), "Idle-time cost per unused unit of regular capacity", 5, min = 0)
+      checkboxInput(ns("allow_idle"), "Allow idle time", FALSE),
+      checkboxInput(ns("allow_sc"), "Allow subcontracting", FALSE),
+      conditionalPanel(
+        "input.allow_sc", ns = ns,
+        textInput(ns("sc_cap"), "Subcontracting limit per period (units; one value, a list, or empty = no limit)", "")
       ),
-      checkboxInput(ns("use_subcontract"), "Allow subcontracting", TRUE),
-      conditionalPanel("input.use_subcontract", ns = ns,
-        numericInput(ns("subcontract_capacity"), "Maximum subcontract units per period", 300, min = 0),
-        numericInput(ns("subcontract_cost"), "Subcontract cost per unit", 35, min = 0)
-      ),
-      checkboxInput(ns("integer_workforce"), "Require whole workers", FALSE)
+      hr(),
+      checkboxInput(ns("integer"), "Also solve as an integer program (whole workers, hires, fires)", FALSE),
+      helpText("Costs of overtime, idle time and subcontracting are entered in Plan Setup.")
     ),
     mainPanel(
-      h3(textOutput(ns("headline"))), uiOutput(ns("notes")),
-      h4("Cost summary"), tableOutput(ns("cost_summary")),
-      plotOutput(ns("plot"), height = "560px"),
-      h4("Optimal plan by period"),
-      div(style = "overflow-x:auto;", tableOutput(ns("plan_table"))),
-      downloadButton(ns("download"), "Download optimal plan (CSV)"), br(), br(),
-      wellPanel(h4("Model"),
-        p("The objective minimizes regular, overtime, subcontracting, idle-time, hiring, layoff, inventory and backlog costs."),
-        p("Workforce balance, regular/overtime capacity, material balance and required ending inventory are enforced in every period."))
+      ap_results_ui(ns, method = tagList(
+        p("Decision variables for every period: workers W, hired H, fired F, production P,",
+          "inventory I, overtime O, idle time U and subcontracting S."),
+        p("$$\\min \\sum_t \\left(c_H H_t + c_F F_t + c_I I_t + c_R(\\cdot) + c_O O_t + c_U U_t + c_S S_t\\right)$$"),
+        p("$$W_t = W_{t-1} + H_t - F_t,\\quad P_t = K n_t W_t + O_t - U_t,\\quad I_t = I_{t-1} + P_t + S_t - D_t$$"),
+        p("with \\(I_T \\ge\\) the required ending inventory and all variables \\(\\ge 0\\).",
+          "Regular time costs \\(c_R (K n_t W_t - U_t)\\) per unit, or \\(c_R n_t W_t\\) as payroll."),
+        p("Whole workers (book's conservative rounding): every \\(W_t\\) is rounded up and the LP",
+          "is solved again for the other variables. This is always feasible but rarely optimal.")
+      ))
     )
   )
 }
 
-linear_programming_server <- function(id) {
+linear_programming_server <- function(id, setup) {
   moduleServer(id, function(input, output, session) {
-    series <- fc_data_server(input, output, session)
-    result <- reactive({
-      s <- series()
-      p <- tryCatch(hp_parameters(input), error = function(e) validate(need(FALSE, conditionMessage(e))))
-      optional_value <- function(x) if (is.null(x) || length(x) == 0) 0 else x
-      extra <- c(optional_value(input$overtime_per_worker), optional_value(input$overtime_cost),
-                 optional_value(input$idle_cost), optional_value(input$subcontract_capacity),
-                 optional_value(input$subcontract_cost))
-      validate(need(all(is.finite(extra)) && all(extra >= 0),
-                    "All option capacities and costs must be non-negative numbers."))
-      tryCatch(lp_aggregate_plan(
-        s$values, p,
-        overtime_per_worker = if (isTRUE(input$use_overtime)) input$overtime_per_worker else 0,
-        overtime_cost = if (isTRUE(input$use_overtime)) input$overtime_cost else 0,
-        idle_cost = if (isTRUE(input$use_idle)) input$idle_cost else 0,
-        subcontract_capacity = if (isTRUE(input$use_subcontract)) input$subcontract_capacity else 0,
-        subcontract_cost = if (isTRUE(input$use_subcontract)) input$subcontract_cost else 0,
-        use_overtime = isTRUE(input$use_overtime), use_idle = isTRUE(input$use_idle),
-        use_subcontract = isTRUE(input$use_subcontract),
-        integer_workforce = isTRUE(input$integer_workforce)
-      ), error = function(e) validate(need(FALSE, conditionMessage(e))))
+    res <- reactive({
+      s <- setup()
+      sc_cap <- rep(Inf, s$n)
+      if (isTRUE(input$allow_sc) && nzchar(trimws(input$sc_cap %||% ""))) {
+        sc_cap <- tryCatch(ap_parse_list(input$sc_cap, s$n, "Subcontracting limit"),
+                           error = function(e) validate(need(FALSE, conditionMessage(e))))
+      }
+      validate(need(!isTRUE(input$allow_ot) || (is.finite(input$ot_pct) && input$ot_pct >= 0),
+                    "The overtime limit must be a non-negative percentage."))
+      opts <- list(allow_ot = isTRUE(input$allow_ot), ot_pct = input$ot_pct,
+                   allow_idle = isTRUE(input$allow_idle), allow_sc = isTRUE(input$allow_sc),
+                   sc_cap = sc_cap)
+      solve <- function(...) tryCatch(ap_lp_solve(s, opts, ...),
+                                      error = function(e) validate(need(FALSE, conditionMessage(e))))
+      original <- solve()
+      rounded <- solve(fixed_W = ceiling(original$W - 1e-6))
+      plans <- list("Original LP plan" = original, "Whole workers (rounded up)" = rounded)
+      if (isTRUE(input$integer)) plans[["Integer program"]] <- solve(integer = TRUE)
+      notes <- c(sprintf("Optimal LP cost (fractional workers): %s.", fc_fmt(original$objective)),
+                 ap_rounding_note(plans))
+      list(title = "Linear Programming", plans = plans, notes = notes)
     })
-    output$headline <- renderText(sprintf("Optimal LP plan — total cost: %s", fc_fmt(result()$objective)))
-    output$notes <- renderUI({
-      s <- series()
-      notes <- c(if (isTRUE(input$integer_workforce)) "Workforce, hires and layoffs are restricted to whole workers." else "Workforce may be fractional.")
-      if (s$dropped > 0) notes <- c(notes, sprintf("%d empty / non-numeric cells were ignored.", s$dropped))
-      div(class = "text-muted", lapply(notes, p))
-    })
-    output$cost_summary <- renderTable({
-      r <- result(); values <- colSums(r$table[r$cost_cols])
-      data.frame(Cost = c(names(values), "Total cost"), Amount = c(values, sum(values)), check.names = FALSE)
-    }, digits = 2)
-    output$plot <- renderPlot(hp_plot_plan(result()$table, "Linear Programming"))
-    output$plan_table <- renderTable(result()$table, digits = 2)
-    output$download <- downloadHandler(
-      filename = function() "linear_programming_plan.csv",
-      content = function(file) utils::write.csv(result()$table, file, row.names = FALSE)
-    )
+    ap_results_server(input, output, session, setup, res, "linear_programming")
+    res
   })
+}
+
+# Parse "500" or "500, 400, 300" into a vector of length n.
+ap_parse_list <- function(text, n, label) {
+  pieces <- trimws(unlist(strsplit(as.character(text), "[,;[:space:]]+")))
+  pieces <- pieces[nzchar(pieces)]
+  values <- fc_to_numeric(pieces)
+  if (length(values) == 1) values <- rep(values, n)
+  if (length(values) != n || any(!is.finite(values)) || any(values < 0)) {
+    stop(sprintf("%s: enter one non-negative number or exactly %d numbers.", label, n))
+  }
+  values
 }

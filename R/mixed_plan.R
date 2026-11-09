@@ -1,34 +1,38 @@
 # =============================================================================
-# Mixed aggregate plan
-# A constant regular workforce supplies a chosen share of average requirements.
-# Overtime and then subcontracting cover shortages up to their capacities;
-# remaining shortages become backlog.
+# Mixed Plan                               (Aggregate Planning > Heuristic plans)
+# Lecture slides "Cost Reduction in Constant Work Force Plan"
+# The user chooses the periods in which the workforce changes. Between two
+# changes the workforce is constant and is the smallest level that causes no
+# shortage, starting from the inventory left by the previous segment:
+#   W_seg = max over t in segment of
+#           (cumulative net demand from segment start to t - inventory carried in)
+#           / (K * cumulative working days from segment start to t)
+# With no change periods the mixed plan equals the level plan.
 # =============================================================================
 
-hp_mixed_plan <- function(demand, params, regular_workforce,
-                          overtime_capacity, subcontract_capacity,
-                          overtime_cost, subcontract_cost,
-                          round_workforce = FALSE) {
-  n <- length(demand)
-  workers <- max(0, regular_workforce)
-  if (round_workforce) workers <- ceiling(workers)
-  workforce <- rep(workers, n)
-  regular <- workforce * params$productivity
-  overtime <- subcontract <- numeric(n)
-  net <- params$initial_inventory
-  for (t in seq_len(n)) {
-    target <- if (t == n) params$target_inventory else 0
-    shortage <- max(0, demand[t] + target - (net + regular[t]))
-    overtime[t] <- min(shortage, overtime_capacity)
-    shortage <- shortage - overtime[t]
-    subcontract[t] <- min(shortage, subcontract_capacity)
-    net <- net + regular[t] + overtime[t] + subcontract[t] - demand[t]
+ap_mixed_workers <- function(s, change_periods, round_up = FALSE) {
+  n <- s$n
+  starts <- sort(unique(c(1L, as.integer(change_periods))))
+  starts <- starts[starts >= 1 & starts <= n]
+  ends <- c(starts[-1] - 1L, n)
+  cum_net <- cumsum(s$net)
+  W <- numeric(n)
+  cum_p <- 0
+  segments <- vector("list", length(starts))
+  for (k in seq_along(starts)) {
+    idx <- starts[k]:ends[k]
+    carried <- cum_p - (if (starts[k] > 1) cum_net[starts[k] - 1] else 0)
+    need <- cumsum(s$net[idx]) - carried
+    ratio <- need / (s$K * cumsum(s$days[idx]))
+    w <- max(0, ratio)
+    if (round_up) w <- ceiling(w - 1e-9)
+    W[idx] <- w
+    cum_p <- cum_p + sum(w * s$kn[idx])
+    segments[[k]] <- data.frame(Segment = sprintf("%s to %s", s$periods[starts[k]], s$periods[ends[k]]),
+                                "Inventory carried in" = carried, "Critical period" = s$periods[idx[which.max(ratio)]],
+                                Workers = w, check.names = FALSE)
   }
-  tab <- hp_make_plan(
-    demand, workforce, regular, params, overtime, subcontract,
-    label = if (round_workforce) "Workforce rounded up" else "Fractional workforce"
-  )
-  hp_apply_extra_costs(tab, overtime_cost, subcontract_cost)
+  list(W = W, segments = do.call(rbind, segments))
 }
 
 mixed_plan_ui <- function(id) {
@@ -36,98 +40,65 @@ mixed_plan_ui <- function(id) {
   sidebarLayout(
     sidebarPanel(
       h4("Mixed Plan"),
-      hp_common_ui(ns),
-      hr(),
-      h4("Mixed-plan choices"),
-      radioButtons(
-        ns("workforce_mode"), "Regular workforce",
-        choices = c("Use a share of the average requirement" = "share",
-                    "Enter the regular workforce" = "manual")
-      ),
-      conditionalPanel(
-        "input.workforce_mode == 'share'", ns = ns,
-        sliderInput(ns("regular_share"), "Share covered by regular workforce",
-                    min = 0.1, max = 1, value = 0.8, step = 0.05)
-      ),
-      conditionalPanel(
-        "input.workforce_mode == 'manual'", ns = ns,
-        numericInput(ns("regular_workforce"), "Constant regular workforce", value = 9, min = 0, step = 0.1)
-      ),
-      numericInput(ns("overtime_capacity"), "Maximum overtime production per period",
-                   value = 300, min = 0, step = 10),
-      numericInput(ns("overtime_cost"), "Overtime cost per unit", value = 30, min = 0),
-      numericInput(ns("subcontract_capacity"), "Maximum subcontract production per period",
-                   value = 300, min = 0, step = 10),
-      numericInput(ns("subcontract_cost"), "Subcontract cost per unit", value = 35, min = 0),
-      hr(), hp_display_ui(ns)
+      ap_setup_info_ui(ns),
+      selectizeInput(ns("changes"), "Periods in which the workforce changes",
+                     choices = NULL, multiple = TRUE,
+                     options = list(placeholder = "Choose one or more periods")),
+      helpText("The workforce is constant between two chosen periods. Example from the slides:",
+               "change in April and in June."),
+      h4("Workforce of each segment"),
+      tableOutput(ns("segment_table"))
     ),
     mainPanel(
-      hp_results_ui(ns, method = tagList(
-        p("A constant regular workforce supplies the base production."),
-        p("When regular production and available inventory are insufficient, the plan uses",
-          "overtime first, then subcontracting. Any remaining shortage becomes backlog."),
-        p("The automatic option sets regular workforce to the selected share of the average",
-          "net requirement. The rounded alternative takes its ceiling.")
+      ap_results_ui(ns, method = tagList(
+        p("A level plan is used inside each segment between the chosen change periods. The",
+          "workforce of a segment is the smallest that causes no shortage until the segment ends,",
+          "taking into account the inventory carried in from the previous segment:"),
+        p("$$W_{seg} = \\max_{t \\in seg} \\frac{\\sum_{i=a}^{t} D'_i - I_{carried}}{K \\sum_{i=a}^{t} n_i}$$"),
+        p("where a is the first period of the segment. Workers are hired or fired only at the",
+          "start of a segment. The whole-worker plan rounds every segment's workforce up.")
       ))
     )
   )
 }
 
-mixed_plan_server <- function(id) {
+mixed_plan_server <- function(id, setup) {
   moduleServer(id, function(input, output, session) {
-    series <- fc_data_server(input, output, session)
-    plans <- reactive({
-      s <- series()
-      params <- tryCatch(hp_parameters(input),
-                         error = function(e) validate(need(FALSE, conditionMessage(e))))
-      validate(need(all(s$values >= 0), "Demand cannot contain negative values."))
-      extra <- c(input$overtime_capacity, input$overtime_cost,
-                 input$subcontract_capacity, input$subcontract_cost)
-      validate(need(all(is.finite(extra)) && all(extra >= 0),
-                    "Mixed-plan capacity and cost inputs must be non-negative numbers."))
-
-      average_workers <- max(0, (sum(s$values) + params$target_inventory -
-                                   params$initial_inventory) /
-                               (length(s$values) * params$productivity))
-      if (identical(input$workforce_mode, "manual")) {
-        validate(need(is.finite(input$regular_workforce) && input$regular_workforce >= 0,
-                      "Regular workforce must be a non-negative number."))
-        regular_workforce <- input$regular_workforce
-        source_note <- sprintf("Entered constant regular workforce: %.3f.", regular_workforce)
-      } else {
-        share <- input$regular_share
-        validate(need(is.finite(share) && share > 0 && share <= 1,
-                      "The regular-workforce share must be between 0 and 1."))
-        regular_workforce <- average_workers * share
-        source_note <- sprintf(
-          "Regular workforce covers %.0f%% of the average net requirement (%.3f workers).",
-          100 * share, regular_workforce
-        )
+    # Offer periods 2..n as change points; keep the user's choice when possible.
+    observeEvent(setup()$periods, {
+      s <- setup()
+      choices <- setNames(as.character(2:s$n), s$periods[-1])
+      keep <- intersect(isolate(input$changes), choices)
+      if (length(keep) == 0 && identical(s$preset, "Constant workforce example, 8 months (Slides)")) {
+        keep <- c("4", "6")
       }
-
-      exact <- hp_mixed_plan(
-        s$values, params, regular_workforce,
-        input$overtime_capacity, input$subcontract_capacity,
-        input$overtime_cost, input$subcontract_cost, FALSE
-      )
-      rounded <- hp_mixed_plan(
-        s$values, params, regular_workforce,
-        input$overtime_capacity, input$subcontract_capacity,
-        input$overtime_cost, input$subcontract_cost, TRUE
-      )
-      notes <- source_note
-      if (s$dropped > 0) notes <- c(notes, sprintf(
-        "%d empty / non-numeric cells were ignored.", s$dropped
-      ))
-      if (tail(exact[["Ending backlog"]], 1) > 0) notes <- c(notes,
-        "The fractional plan ends with backlog because overtime and subcontract capacity are insufficient.")
-      list(
-        title = "Mixed Plan",
-        plans = list(exact = exact, rounded = rounded),
-        plan_names = c("Fractional workforce", "Workforce rounded up"),
-        notes = notes
-      )
+      updateSelectizeInput(session, "changes", choices = choices, selected = keep)
     })
-    hp_results_server(output, session, plans, reactive(input$display), "mixed_plan")
+
+    res <- reactive({
+      s <- setup()
+      changes <- as.integer(input$changes %||% character(0))
+      changes <- changes[!is.na(changes) & changes >= 2 & changes <= s$n]
+      exact <- ap_mixed_workers(s, changes, FALSE)
+      rounded <- ap_mixed_workers(s, changes, TRUE)
+      plans <- ap_two_plans(s, exact$W, rounded$W)
+      notes <- if (length(changes) == 0) {
+        "No change period is chosen, so this is the same as the constant-workforce plan."
+      } else {
+        sprintf("Workforce changes at the start of: %s.", paste(s$periods[sort(changes)], collapse = ", "))
+      }
+      list(title = "Mixed Plan", plans = plans, segments = exact$segments,
+           segments_rounded = rounded$segments, notes = c(notes, ap_rounding_note(plans)))
+    })
+
+    output$segment_table <- renderTable({
+      r <- res()
+      tab <- r$segments[, c("Segment", "Critical period", "Workers")]
+      tab[["Whole workers"]] <- as.integer(r$segments_rounded$Workers)
+      tab
+    }, digits = 2)
+
+    ap_results_server(input, output, session, setup, res, "mixed_plan")
+    res
   })
 }

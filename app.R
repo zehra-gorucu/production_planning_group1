@@ -20,6 +20,9 @@ ui <- navbarPage("Production Planning",
     tabPanel("AR, MA, ARMA and ARIMA", box_jenkins_ui("box_jenkins"))
   ),
   navbarMenu("Aggregate Planning",
+    "Data and costs",
+    tabPanel("Plan Setup", ap_setup_ui("ap_setup")),
+    "----",
     "Heuristic plans",
     tabPanel("Zero-inventory (Chase) Plan", chase_plan_ui("chase_plan")),
     tabPanel("Constant-workforce (Level) Plan", level_plan_ui("level_plan")),
@@ -44,12 +47,16 @@ server <- function(input, output, session) {
   seasonal_decomposition_server("seasonal_decomposition")
   winters_server("winters")
   box_jenkins_server("box_jenkins")
-  chase_plan_server("chase_plan")
-  level_plan_server("level_plan")
-  mixed_plan_server("mixed_plan")
-  linear_programming_server("linear_programming")
-  transportation_method_server("transportation_method")
-  disaggregation_server("disaggregation")
+  # Aggregate planning: one setup (data, K, costs) shared by every method
+  ap <- ap_setup_server("ap_setup")
+  chase <- chase_plan_server("chase_plan", ap)
+  level <- level_plan_server("level_plan", ap)
+  mixed <- mixed_plan_server("mixed_plan", ap)
+  lp <- linear_programming_server("linear_programming", ap)
+  transportation_method_server("transportation_method", ap)
+  disaggregation_server("disaggregation", ap,
+                        list("Chase plan" = chase, "Level plan" = level,
+                             "Mixed plan" = mixed, "Linear programming" = lp))
 }
 
 shinyApp(ui, server)

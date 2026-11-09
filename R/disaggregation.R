@@ -1,147 +1,166 @@
 # =============================================================================
-# Disaggregation of an aggregate plan among product families.
-# Square-root rule: family share_i = sqrt(weight_i) / sum_j sqrt(weight_j).
+# Disaggregation with the square-root rule   (Aggregate Planning > Disaggregation)
+# Nahmias & Olsen Section 3.6 (Bitran and Hax, 1981); lecture slides 79-81
+# The aggregate production X* of a period is split among the product families
+# Y_1, ..., Y_J so that the average annual setup cost is as small as possible:
+#     minimize  sum_j K_j lambda_j / Y_j
+#     s.t.      sum_j Y_j = X*,   a_j <= Y_j <= b_j
+# K_j = setup cost of family j, lambda_j = annual demand (usage rate) of family j.
+# Without bounds the solution is the square-root rule:
+#     Y_j = X* sqrt(K_j lambda_j) / sum_i sqrt(K_i lambda_i)
+# With bounds, Y_j = min(b_j, max(a_j, s sqrt(K_j lambda_j))) and s is found so
+# that the Y_j add up to X* (Lagrange multiplier, found by bisection).
 # =============================================================================
 
-dg_split_text <- function(x) {
-  parts <- unlist(strsplit(as.character(x), "[,;\\n]+"))
-  trimws(parts[nzchar(trimws(parts))])
+ap_parse_families <- function(text) {
+  lines <- trimws(unlist(strsplit(as.character(text), "\n")))
+  lines <- lines[nzchar(lines)]
+  rows <- lapply(lines, function(l) trimws(unlist(strsplit(l, "[,;\t]"))))
+  if (length(rows) < 2) stop("Enter at least two product families (one per line).")
+  out <- do.call(rbind, lapply(rows, function(r) {
+    if (length(r) < 3) stop("Each line needs: name, setup cost, annual demand [, minimum, maximum].")
+    num <- fc_to_numeric(r[-1])
+    data.frame(Family = r[1], K = num[1], lambda = num[2],
+               a = if (length(num) >= 3 && is.finite(num[3])) num[3] else 0,
+               b = if (length(num) >= 4 && is.finite(num[4])) num[4] else Inf)
+  }))
+  if (any(!is.finite(out$K)) || any(!is.finite(out$lambda)) || any(out$K < 0) || any(out$lambda < 0)) {
+    stop("Setup costs and annual demands must be non-negative numbers.")
+  }
+  if (sum(out$K * out$lambda) <= 0) stop("At least one family needs a positive setup cost and demand.")
+  if (any(out$a > out$b)) stop("A minimum is larger than its maximum.")
+  if (anyDuplicated(out$Family)) stop("Family names must be different.")
+  out
 }
 
-dg_parse_families <- function(names_text, weights_text) {
-  family <- dg_split_text(names_text)
-  weight_text <- dg_split_text(weights_text)
-  weight <- suppressWarnings(as.numeric(weight_text))
-  if (length(family) < 2) stop("Enter at least two product-family names.")
-  if (length(weight) != length(family)) {
-    stop("Product-family names and family weights must contain the same number of entries.")
+# Square-root rule with bounds for one aggregate quantity X.
+ap_sqrt_rule <- function(X, fam) {
+  root <- sqrt(fam$K * fam$lambda)
+  if (X < sum(fam$a) - 1e-9 || X > sum(fam$b) + 1e-9) return(rep(NA_real_, nrow(fam)))
+  y <- function(s) pmin(fam$b, pmax(fam$a, s * root))
+  lo <- 0
+  hi <- 1
+  while (sum(y(hi)) < X && hi < 1e15) hi <- hi * 2
+  for (i in 1:200) {
+    mid <- (lo + hi) / 2
+    if (sum(y(mid)) < X) lo <- mid else hi <- mid
   }
-  if (any(!is.finite(weight)) || any(weight < 0) || sum(weight) <= 0) {
-    stop("Family weights must be non-negative numbers with a positive total.")
-  }
-  if (anyDuplicated(family)) stop("Product-family names must be unique.")
-  root <- sqrt(weight)
-  share <- root / sum(root)
-  data.frame(Family = family, Weight = weight, "Square-root score" = root,
-             Share = share, check.names = FALSE)
-}
-
-dg_largest_remainder <- function(total, shares) {
-  target <- as.integer(round(total))
-  raw <- target * shares
-  allocation <- floor(raw)
-  remaining <- target - sum(allocation)
-  if (remaining > 0) {
-    order_fraction <- order(raw - allocation, decreasing = TRUE)
-    allocation[order_fraction[seq_len(remaining)]] <-
-      allocation[order_fraction[seq_len(remaining)]] + 1L
-  }
-  allocation
-}
-
-dg_make_result <- function(aggregate_plan, family_table, whole_units = TRUE) {
-  aggregate_plan <- as.numeric(aggregate_plan)
-  if (any(!is.finite(aggregate_plan)) || any(aggregate_plan < 0)) {
-    stop("Aggregate-plan values must be finite and non-negative.")
-  }
-  shares <- family_table$Share
-  if (whole_units) {
-    allocation <- t(vapply(aggregate_plan, dg_largest_remainder,
-                           FUN.VALUE = numeric(length(shares)), shares = shares))
-    plan_used <- round(aggregate_plan)
-  } else {
-    allocation <- outer(aggregate_plan, shares)
-    plan_used <- aggregate_plan
-  }
-  colnames(allocation) <- family_table$Family
-  period_table <- data.frame(
-    Period = seq_along(aggregate_plan),
-    "Aggregate plan" = aggregate_plan,
-    as.data.frame(allocation, check.names = FALSE),
-    "Allocated total" = rowSums(allocation),
-    Difference = rowSums(allocation) - aggregate_plan,
-    check.names = FALSE
-  )
-  family_table[["Total allocated"]] <- colSums(allocation)
-  list(period_table = period_table, family_table = family_table,
-       allocation = allocation, plan_used = plan_used, whole_units = whole_units)
+  y(hi)
 }
 
 disaggregation_ui <- function(id) {
   ns <- NS(id)
   sidebarLayout(
     sidebarPanel(
-      h4("Disaggregation with the Square-root Rule"),
-      fc_data_ui(ns, default_example = "Aggregate planning, 6 periods (illustrative)"), hr(),
-      h4("Product families"),
-      textAreaInput(ns("family_names"), "Family names (comma-separated)",
-                    value = "Family A, Family B, Family C", rows = 2),
-      textAreaInput(ns("family_weights"), "Family demand / importance weights (same order)",
-                    value = "100, 64, 36", rows = 2),
-      radioButtons(ns("unit_mode"), "Allocation units",
-        choices = c("Whole units; preserve each rounded period total" = "whole",
-                    "Fractional units; preserve the exact period total" = "fractional"),
-        selected = "whole")
+      h4("Disaggregation (square-root rule)"),
+      ap_setup_info_ui(ns),
+      selectInput(ns("source"), "Aggregate plan to split",
+                  choices = c("Chase plan", "Level plan", "Mixed plan", "Linear programming",
+                              "Enter quantities manually")),
+      conditionalPanel(
+        "input.source != 'Enter quantities manually'", ns = ns,
+        radioButtons(ns("version"), NULL,
+                     choices = c("Whole-worker plan" = "2", "Original plan" = "1"), inline = TRUE)
+      ),
+      conditionalPanel(
+        "input.source == 'Enter quantities manually'", ns = ns,
+        textInput(ns("manual"), "Aggregate production per period (one value or a list)", "1000")
+      ),
+      textAreaInput(ns("families"),
+                    "Product families: name, setup cost K_j, annual demand λ_j [, minimum, maximum]",
+                    value = "Family A, 200, 2000\nFamily B, 150, 4500\nFamily C, 300, 900", rows = 5),
+      helpText("One family per line. Minimum and maximum (units per period) are optional.")
     ),
     mainPanel(
-      h3(textOutput(ns("headline"))), uiOutput(ns("notes")),
-      h4("Family shares"), tableOutput(ns("family_table")),
-      plotOutput(ns("plot"), height = "430px"),
+      h3(textOutput(ns("headline"))),
+      uiOutput(ns("notes")),
+      h4("Product families"),
+      tableOutput(ns("family_table")),
+      plotOutput(ns("plot"), height = "380px"),
       h4("Disaggregated plan by period"),
-      div(style = "overflow-x:auto;", tableOutput(ns("period_table"))),
-      downloadButton(ns("download"), "Download disaggregated plan (CSV)"), br(), br(),
-      wellPanel(h4("Square-root rule"), withMathJax(
-        p("For family \\(i\\), the allocation share is"),
-        p("\\[s_i = \\frac{\\sqrt{w_i}}{\\sum_j \\sqrt{w_j}}\\]"),
-        p("where \\(w_i\\) is the entered family demand or importance weight. Every period's aggregate quantity is multiplied by these shares."),
-        p("In whole-unit mode, the largest-remainder procedure makes the family quantities add up to the rounded aggregate total."))
+      div(style = "overflow-x: auto;", tableOutput(ns("period_table"))),
+      downloadButton(ns("download"), "Download the disaggregated plan (CSV)"),
+      br(), br(),
+      wellPanel(h4("Method"), withMathJax(
+        p("The aggregate production \\(X^*\\) of each period is divided among the families so",
+          "that the average annual setup cost is minimized (Bitran and Hax):"),
+        p("$$\\min \\sum_j \\frac{K_j \\lambda_j}{Y_j} \\quad \\text{s.t.} \\quad \\sum_j Y_j = X^*,\\ a_j \\le Y_j \\le b_j$$"),
+        p("Without bounds the optimal run sizes follow the square-root rule:"),
+        p("$$Y_j = X^* \\frac{\\sqrt{K_j \\lambda_j}}{\\sum_i \\sqrt{K_i \\lambda_i}}$$"),
+        p("With bounds, a family at its bound is fixed there and the rest is shared by the",
+          "same rule among the other families.")
+      ))
     )
-  )
   )
 }
 
-disaggregation_server <- function(id) {
+disaggregation_server <- function(id, setup, plans) {
   moduleServer(id, function(input, output, session) {
-    series <- fc_data_server(input, output, session)
-    result <- reactive({
-      s <- series()
-      families <- tryCatch(dg_parse_families(input$family_names, input$family_weights),
-                           error = function(e) validate(need(FALSE, conditionMessage(e))))
-      tryCatch(dg_make_result(s$values, families, identical(input$unit_mode, "whole")),
-               error = function(e) validate(need(FALSE, conditionMessage(e))))
-    })
-    output$headline <- renderText({
-      r <- result()
-      sprintf("Square-root disaggregation — %d periods, %d product families",
-              nrow(r$period_table), nrow(r$family_table))
-    })
-    output$notes <- renderUI({
-      r <- result(); s <- series(); notes <- character(0)
-      if (r$whole_units && any(abs(r$period_table$Difference) > 1e-8)) {
-        notes <- c(notes, "Whole-unit mode rounds each aggregate period total to the nearest integer; the Difference column shows that rounding only.")
+    res <- reactive({
+      s <- setup()
+      fam <- tryCatch(ap_parse_families(input$families),
+                      error = function(e) validate(need(FALSE, conditionMessage(e))))
+      if (identical(input$source, "Enter quantities manually")) {
+        X <- tryCatch(ap_parse_list(input$manual, s$n, "Aggregate production"),
+                      error = function(e) validate(need(FALSE, conditionMessage(e))))
+        label <- "Manual quantities"
+      } else {
+        p <- plans[[input$source]]()
+        k <- min(as.integer(input$version %||% "2"), length(p$plans))
+        X <- p$plans[[k]]$production
+        label <- sprintf("%s – %s", input$source, names(p$plans)[k])
       }
-      if (s$dropped > 0) notes <- c(notes, sprintf("%d empty / non-numeric cells were ignored.", s$dropped))
-      if (length(notes) == 0) notes <- "Each period total is preserved exactly."
+      Y <- t(vapply(X, ap_sqrt_rule, numeric(nrow(fam)), fam = fam))
+      if (nrow(fam) == 1) Y <- t(Y)
+      colnames(Y) <- fam$Family
+      setup_cost <- apply(Y, 1, function(y) if (any(is.na(y))) NA else sum(ifelse(y > 0, fam$K * fam$lambda / y, Inf)))
+      list(s = s, fam = fam, X = X, Y = Y, label = label, setup_cost = setup_cost)
+    })
+
+    output$headline <- renderText({
+      r <- res()
+      sprintf("Square-root disaggregation of: %s", r$label)
+    })
+
+    output$notes <- renderUI({
+      r <- res()
+      notes <- character(0)
+      if (any(is.na(r$Y))) notes <- c(notes, "In some periods the aggregate quantity is outside the sum of the family minimums/maximums; those periods are left empty.")
+      if (any(is.finite(r$fam$b)) || any(r$fam$a > 0)) notes <- c(notes, "Family bounds are used, so the shares can differ between periods.")
+      if (length(notes) == 0) notes <- "No bounds are binding: every period uses the same square-root shares."
       div(class = "text-muted", lapply(notes, p))
     })
+
     output$family_table <- renderTable({
-      r <- result(); tab <- r$family_table
-      tab$Share <- 100 * tab$Share
-      names(tab)[names(tab) == "Share"] <- "Share (%)"
-      tab
-    }, digits = 2)
-    output$period_table <- renderTable(result()$period_table, digits = 2)
-    output$plot <- renderPlot({
-      r <- result()
-      colors <- grDevices::hcl.colors(ncol(r$allocation), "Set 2")
-      barplot(t(r$allocation), beside = FALSE, col = colors, border = NA,
-              names.arg = r$period_table$Period, xlab = "Period", ylab = "Units",
-              main = "Aggregate plan split among product families")
-      legend("topright", bty = "n", fill = colors, legend = colnames(r$allocation), ncol = 2)
+      f <- res()$fam
+      root <- sqrt(f$K * f$lambda)
+      data.frame(Family = f$Family, "Setup cost K_j" = f$K, "Annual demand λ_j" = f$lambda,
+                 "sqrt(K_j λ_j)" = root, "Share (%)" = 100 * root / sum(root),
+                 Minimum = f$a, Maximum = ifelse(is.finite(f$b), f$b, NA), check.names = FALSE)
+    }, digits = 2, na = "")
+
+    period_table <- reactive({
+      r <- res()
+      data.frame(Period = r$s$periods, "Aggregate production X*" = r$X, r$Y,
+                 "Check: sum of families" = rowSums(r$Y),
+                 "Setup cost sum Kλ/Y" = r$setup_cost, check.names = FALSE)
     })
+    output$period_table <- renderTable(period_table(), digits = 2, na = "")
+
+    output$plot <- renderPlot({
+      r <- res()
+      Y <- r$Y
+      Y[is.na(Y)] <- 0
+      cols <- grDevices::hcl.colors(ncol(Y), "Set 2")
+      par(mar = c(6, 5, 3, 1))
+      barplot(t(Y), names.arg = r$s$periods, col = cols, border = NA, las = 2,
+              ylab = "Units", main = "Aggregate production split among product families")
+      legend("topleft", bty = "n", fill = cols, legend = colnames(Y))
+    })
+
     output$download <- downloadHandler(
-      filename = function() "disaggregated_square_root_plan.csv",
-      content = function(file) utils::write.csv(result()$period_table, file, row.names = FALSE)
+      filename = function() "disaggregation_square_root.csv",
+      content = function(file) utils::write.csv(period_table(), file, row.names = FALSE)
     )
   })
 }

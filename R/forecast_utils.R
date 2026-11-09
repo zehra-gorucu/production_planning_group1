@@ -42,10 +42,6 @@ fc_examples <- list(
     Quarter = rep(1:4, times = 3),
     Sales   = c(108, 125, 150, 141, 116, 134, 159, 152, 123, 142, 168, 165)
   ),
-  "Aggregate planning, 6 periods (illustrative)" = data.frame(
-    Period = 1:6,
-    Demand = c(900, 1200, 1500, 1100, 800, 1000)
-  ),
   "Nile annual flow, 1871-1970 (R dataset)" = data.frame(
     Year = 1871:1970,
     Flow = as.numeric(datasets::Nile)
